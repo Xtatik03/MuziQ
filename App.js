@@ -8,7 +8,10 @@ import { useAudioPlayer, useAudioPlayerStatus, setAudioModeAsync } from 'expo-au
 import * as MediaLibrary from 'expo-media-library';
 import * as DocumentPicker from 'expo-document-picker';
 
-const W = Dimensions.get('window').width;
+const { width: W, height: H } = Dimensions.get('window');
+const isCompactScreen = W < 380;
+const playerArtSize = Math.min(W - 48, 320);
+const playerPad = Math.max(16, W * 0.06);
 
 // ─── Theme ───────────────────────────────────────────────────
 const C = {
@@ -60,46 +63,89 @@ function getStyle(genre) { return GENRES[genre] || GENRES['Unknown']; }
 
 // ─── Classifier ───────────────────────────────────────────────
 const KW = [
-  { g:'Afrobeats',   k:['afrobeat','afropop','wizkid','burna','rema','davido','tiwa','kizz','omah','ckay','fireboy','joeboy','tems','asake','olamide','naira marley'] },
+  { g:'Afrobeats',   k:['afrobeat','afropop','wizkid','burna','rema','davido','tiwa','kizz','omah','ckay','fireboy','joeboy','tems','asake','olamide','naira marley','amapiano'] },
   { g:'Dancehall',   k:['dancehall','vybz kartel','popcaan','alkaline','shaggy','beenie man'] },
-  { g:'Reggae',      k:['reggae','bob marley','damian marley','chronixx','protoje','sizzla','buju'] },
+  { g:'Reggae',      k:['reggae','bob marley','damian marley','chronixx','protoje','sizzla','buju','ska'] },
   { g:'Trap',        k:['trap','young thug','21 savage','gunna','lil baby','future','2 chainz','drill','pop smoke','central cee','headie one','kodak'] },
-  { g:'Hip-Hop',     k:['hip-hop','hip hop','rap','drake','kendrick','kanye','jay-z','eminem','nicki minaj','cardi b','j. cole','big sean','meek mill','rick ross','lil wayne','snoop','nas','biggie','tupac','a$ap','asap','travis scott','schoolboy'] },
-  { g:'K-Pop',       k:['k-pop','kpop','bts','blackpink','twice','exo','got7','stray kids','red velvet','aespa','itzy','nct','enhypen','seventeen','shinee','bigbang'] },
-  { g:'Latin',       k:['latin','reggaeton','bad bunny','j balvin','ozuna','maluma','daddy yankee','nicky jam','farruko','rauw alejandro','karol g','rosalia','salsa','bachata','cumbia'] },
-  { g:'R&B',         k:['r&b','rnb','r n b','sza','frank ocean','beyonce','beyoncé','alicia keys','usher','miguel','daniel caesar','6lack','ella mai','khalid','giveon','brent faiyaz'] },
+  { g:'Hip-Hop',     k:['hip-hop','hip hop','rap','drake','kendrick','kanye','jay-z','eminem','nicki minaj','cardi b','j. cole','big sean','meek mill','rick ross','lil wayne','snoop','nas','biggie','tupac','a$ap','asap','travis scott','schoolboy','rapper'] },
+  { g:'K-Pop',       k:['k-pop','kpop','bts','blackpink','twice','exo','got7','stray kids','red velvet','aespa','itzy','nct','enhypen','seventeen','shinee','bigbang','korean pop'] },
+  { g:'Latin',       k:['latin','reggaeton','bad bunny','j balvin','ozuna','maluma','daddy yankee','nicky jam','farruko','rauw alejandro','karol g','rosalia','salsa','bachata','cumbia','brazil','spanish'] },
+  { g:'R&B',         k:['r&b','rnb','r n b','sza','frank ocean','beyonce','beyoncé','alicia keys','usher','miguel','daniel caesar','6lack','ella mai','khalid','giveon','brent faiyaz','soulful'] },
   { g:'Soul',        k:['soul','neo soul','erykah badu','lauryn hill','jill scott','maxwell','marvin gaye','stevie wonder','otis redding','sam cooke','d\'angelo'] },
-  { g:'Gospel',      k:['gospel','kirk franklin','lecrae','tye tribbett','fred hammond','travis greene','cece winans'] },
+  { g:'Gospel',      k:['gospel','kirk franklin','lecrae','tye tribbett','fred hammond','travis greene','cece winans','church'] },
   { g:'House',       k:['house','calvin harris','david guetta','afrojack','martin garrix','tiesto','tiësto','disclosure','fisher','chris lake','john summit'] },
   { g:'Techno',      k:['techno','skrillex','deadmau5','charlotte de witte','nina kraviz'] },
-  { g:'Electronic',  k:['electronic','edm','avicii','alan walker','marshmello','diplo','flume','porter robinson','madeon','illenium'] },
+  { g:'Electronic',  k:['electronic','edm','avicii','alan walker','marshmello','diplo','flume','porter robinson','madeon','illenium','trance'] },
   { g:'Drum & Bass', k:['drum and bass','drum & bass','dnb','chase & status','pendulum','noisia','sub focus'] },
-  { g:'Metal',       k:['metal','metallica','iron maiden','black sabbath','slayer','megadeth','pantera','tool','avenged sevenfold'] },
-  { g:'Rock',        k:['rock','nirvana','radiohead','arctic monkeys','pearl jam','foo fighters','green day','red hot chili peppers','the killers','muse'] },
+  { g:'Metal',       k:['metal','metallica','iron maiden','black sabbath','slayer','megadeth','pantera','tool','avenged sevenfold','hardcore'] },
+  { g:'Rock',        k:['rock','nirvana','radiohead','arctic monkeys','pearl jam','foo fighters','green day','red hot chili peppers','the killers','muse','punk'] },
   { g:'Indie Pop',   k:['indie','tame impala','vampire weekend','mgmt','beach house','the 1975','the national','bon iver','sufjan','fleet foxes','alt-j'] },
-  { g:'Classical',   k:['classical','beethoven','mozart','chopin','bach','schubert','brahms','tchaikovsky','vivaldi','handel','debussy'] },
-  { g:'Country',     k:['country','luke combs','morgan wallen','blake shelton','kenny rogers','johnny cash','dolly parton','garth brooks'] },
+  { g:'Classical',   k:['classical','beethoven','mozart','chopin','bach','schubert','brahms','tchaikovsky','vivaldi','handel','debussy','orchestral','piano'] },
+  { g:'Country',     k:['country','luke combs','morgan wallen','blake shelton','kenny rogers','johnny cash','dolly parton','garth brooks','cowboy'] },
   { g:'Blues',       k:['blues','b.b. king','muddy waters','howlin wolf','john lee hooker','buddy guy'] },
-  { g:'Folk',        k:['folk','acoustic','iron & wine','noah kahan','phoebe bridgers','big thief','gregory alan isakov'] },
+  { g:'Folk',        k:['folk','acoustic','iron & wine','noah kahan','phoebe bridgers','big thief','gregory alan isakov','campfire'] },
   { g:'Dark Pop',    k:['billie eilish','lorde','halsey','melanie martinez','marina','banks'] },
-  { g:'Dance-Pop',   k:['lady gaga','katy perry','carly rae','meghan trainor','jason derulo','pitbull','flo rida'] },
+  { g:'Dance-Pop',   k:['lady gaga','katy perry','carly rae','meghan trainor','jason derulo','pitbull','flo rida','dance','club'] },
   { g:'Pop Rock',    k:['imagine dragons','onerepublic','maroon 5','train','walk the moon'] },
   { g:'Pop',         k:['pop','taylor swift','ariana grande','dua lipa','ed sheeran','harry styles','the weeknd','charlie puth','shawn mendes','selena gomez','doja cat','olivia rodrigo','post malone','sam smith','adele'] },
 ];
 
+function normalizeText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s&+]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function inferFallbackGenre(text) {
+  const hay = normalizeText(text);
+  const fallbackRules = [
+    { g:'Afrobeats', k:['afro','afrobeats','amapiano','nigerian','naija'] },
+    { g:'Dancehall', k:['dancehall','dancehall','reggae'] },
+    { g:'Hip-Hop', k:['rap','rapper','hip hop','hip-hop','beat','verse'] },
+    { g:'R&B', k:['rnb','r and b','r&b','smooth','slow jam'] },
+    { g:'Soul', k:['soul','neo soul'] },
+    { g:'Gospel', k:['gospel','church','worship'] },
+    { g:'House', k:['house','club','deep house'] },
+    { g:'Techno', k:['techno','minimal'] },
+    { g:'Electronic', k:['edm','electronic','trance'] },
+    { g:'Drum & Bass', k:['drum and bass','drum & bass','dnb'] },
+    { g:'Metal', k:['metal','hardcore','heavy'] },
+    { g:'Rock', k:['rock','punk','alt'] },
+    { g:'Indie Pop', k:['indie','alt pop','indie pop'] },
+    { g:'Classical', k:['classical','orchestral','piano'] },
+    { g:'Country', k:['country','cowboy'] },
+    { g:'Blues', k:['blues','blue'] },
+    { g:'Folk', k:['folk','acoustic'] },
+    { g:'K-Pop', k:['k-pop','kpop','korean'] },
+    { g:'Latin', k:['latin','reggaeton','salsa','brazil','spanish','mexican'] },
+    { g:'Dance-Pop', k:['dance','pop dance','club'] },
+  ];
+  for (const { g, k } of fallbackRules) {
+    if (k.some(kw => hay.includes(kw))) return g;
+  }
+  return 'Pop';
+}
+
 function classify(title, artist, album) {
-  const hay = `${title} ${artist} ${album}`.toLowerCase();
+  const hay = normalizeText(`${title} ${artist} ${album}`);
+  const artistNorm = normalizeText(artist);
   let bestG = null, bestScore = 0;
   for (const { g, k } of KW) {
     for (const kw of k) {
-      if (hay.includes(kw)) {
-        const score = kw.length + (kw === (artist||'').toLowerCase() ? 10 : 0);
+      const kwNorm = normalizeText(kw);
+      if (hay.includes(kwNorm)) {
+        const score = kwNorm.length + (kwNorm === artistNorm ? 10 : 0);
         if (score > bestScore) { bestScore = score; bestG = g; }
       }
     }
   }
-  const genre = bestG || 'Unknown';
-  const confidence = bestG ? Math.min(97, 62 + Math.floor(bestScore * 1.4)) : 50;
+  const fallback = inferFallbackGenre(hay);
+  const genre = bestG || fallback;
+  const confidence = bestG
+    ? Math.min(97, 62 + Math.floor(bestScore * 1.4))
+    : fallback === 'Pop' ? 56 : Math.min(86, 64 + Math.floor(fallback.length / 3));
   const moodMap = {
     'Metal':'Aggressive','Trap':'Hype','Drum & Bass':'Energetic',
     'Electronic':'Energetic','House':'Energetic','Dance-Pop':'Uplifting',
@@ -107,15 +153,86 @@ function classify(title, artist, album) {
     'Classical':'Melancholic','Jazz':'Chill','Soul':'Melancholic',
     'Blues':'Melancholic','Folk':'Melancholic','R&B':'Chill',
     'Hip-Hop':'Chill','Gospel':'Spiritual','Dark Pop':'Melancholic',
-    'Pop':'Uplifting','Rock':'Energetic',
+    'Pop':'Uplifting','Rock':'Energetic','Indie Pop':'Balanced',
   };
   return { genre, confidence, mood: moodMap[genre] || 'Balanced' };
 }
 
 function parseName(filename) {
   const clean = (filename || '').replace(/\.[^.]+$/, '').replace(/_/g, ' ').trim();
-  const m = clean.match(/^(.+?)\s*[-–—]\s*(.+)$/);
-  return m ? { artist: m[1].trim(), title: m[2].trim() } : { artist: 'Unknown', title: clean || 'Unknown' };
+  const normalized = clean.replace(/\s+/g, ' ');
+  const patterns = [
+    /^(.+?)\s*[-–—:|]\s*(.+)$/i,
+    /^(.+?)\s+by\s+(.+)$/i,
+    /^(.+?)\s+\((.+)\)$/i,
+  ];
+  for (const pattern of patterns) {
+    const m = normalized.match(pattern);
+    if (m) return { artist: m[1].trim(), title: m[2].trim() };
+  }
+  return { artist: 'Unknown', title: normalized || 'Unknown' };
+}
+
+function mapLookupGenre(genreName) {
+  const normalized = normalizeText(genreName || '');
+  const genreMap = {
+    'hip hop': 'Hip-Hop',
+    'rap': 'Hip-Hop',
+    'rnb': 'R&B',
+    'rhythm and blues': 'R&B',
+    'soul': 'Soul',
+    'gospel': 'Gospel',
+    'house': 'House',
+    'techno': 'Techno',
+    'electronic': 'Electronic',
+    'dance': 'Dance-Pop',
+    'dance pop': 'Dance-Pop',
+    'pop': 'Pop',
+    'rock': 'Rock',
+    'indie': 'Indie Pop',
+    'indie pop': 'Indie Pop',
+    'folk': 'Folk',
+    'country': 'Country',
+    'classical': 'Classical',
+    'jazz': 'Jazz',
+    'metal': 'Metal',
+    'blues': 'Blues',
+    'reggae': 'Reggae',
+    'latin': 'Latin',
+    'k pop': 'K-Pop',
+    'k-pop': 'K-Pop',
+    'afrobeats': 'Afrobeats',
+    'afro': 'Afrobeats',
+    'dancehall': 'Dancehall',
+    'trap': 'Trap',
+    'drum and bass': 'Drum & Bass',
+    'drum & bass': 'Drum & Bass',
+  };
+  return genreMap[normalized] || null;
+}
+
+async function lookupTrackMetadata(title, artist, fallbackGenre) {
+  try {
+    const query = [title, artist].filter(Boolean).join(' ').trim();
+    if (!query || query === 'Unknown') return null;
+    const url = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=1`;
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    const data = await response.json();
+    const hit = data.results?.[0];
+    if (!hit) return null;
+    const resolvedTitle = hit.trackName || title;
+    const resolvedArtist = hit.artistName || artist;
+    const genre = mapLookupGenre(hit.primaryGenreName) || fallbackGenre || null;
+    return {
+      title: resolvedTitle,
+      artist: resolvedArtist,
+      album: hit.collectionName || '',
+      genre,
+    };
+  } catch (error) {
+    return null;
+  }
 }
 
 function fmtTime(ms) {
@@ -134,6 +251,7 @@ export default function App() {
   const [tab, setTab] = useState('library');
   const [songs, setSongs] = useState([]);
   const [scanning, setScanning] = useState(false);
+  const [refreshingMetadata, setRefreshingMetadata] = useState(false);
   const [scanProg, setScanProg] = useState({ cur: 0, total: 0, name: '' });
   const [error, setError] = useState('');
 
@@ -200,8 +318,15 @@ export default function App() {
         setScanProg({ cur: i + 1, total: all.length, name: title });
         let uri = a.uri;
         try { const info = await MediaLibrary.getAssetInfoAsync(a); uri = info.localUri || a.uri; } catch {}
-        const c = classify(title, artist, '');
-        result.push({ id: a.id, uri, title, artist, duration: a.duration, ...c });
+        const initialClassification = classify(title, artist, '');
+        const shouldLookup = !artist || artist === 'Unknown' || !title || title === 'Unknown' || initialClassification.genre === 'Unknown' || initialClassification.confidence < 60;
+        const metadata = shouldLookup ? await lookupTrackMetadata(title, artist, initialClassification.genre) : null;
+        const resolvedTitle = metadata?.title || title;
+        const resolvedArtist = metadata?.artist || artist;
+        const enrichedClassification = classify(resolvedTitle, resolvedArtist, metadata?.album || '');
+        const finalGenre = metadata?.genre || enrichedClassification.genre;
+        const finalConfidence = metadata?.genre ? Math.min(97, Math.max(enrichedClassification.confidence, 72)) : enrichedClassification.confidence;
+        result.push({ id: a.id, uri, title: resolvedTitle, artist: resolvedArtist, duration: a.duration, genre: finalGenre, confidence: finalConfidence, mood: enrichedClassification.mood });
         if (i % 20 === 0) { setSongs([...result]); await new Promise(r => setTimeout(r, 0)); }
       }
       setSongs(result);
@@ -216,16 +341,55 @@ export default function App() {
         type: 'audio/*', multiple: true, copyToCacheDirectory: true,
       });
       if (res.canceled || !res.assets?.length) return;
-      const picked = res.assets.map((f, i) => {
+      const picked = await Promise.all(res.assets.map(async (f, i) => {
         const { artist, title } = parseName(f.name);
-        return { id: `pick-${i}-${Date.now()}`, uri: f.uri, title, artist, duration: 0, ...classify(title, artist, '') };
-      });
+        const initialClassification = classify(title, artist, '');
+        const shouldLookup = !artist || artist === 'Unknown' || !title || title === 'Unknown' || initialClassification.genre === 'Unknown' || initialClassification.confidence < 60;
+        const metadata = shouldLookup ? await lookupTrackMetadata(title, artist, initialClassification.genre) : null;
+        const resolvedTitle = metadata?.title || title;
+        const resolvedArtist = metadata?.artist || artist;
+        const enrichedClassification = classify(resolvedTitle, resolvedArtist, metadata?.album || '');
+        const finalGenre = metadata?.genre || enrichedClassification.genre;
+        const finalConfidence = metadata?.genre ? Math.min(97, Math.max(enrichedClassification.confidence, 72)) : enrichedClassification.confidence;
+        return { id: `pick-${i}-${Date.now()}`, uri: f.uri, title: resolvedTitle, artist: resolvedArtist, duration: 0, genre: finalGenre, confidence: finalConfidence, mood: enrichedClassification.mood };
+      }));
       setSongs(prev => {
         const ids = new Set(prev.map(s => s.id));
         return [...prev, ...picked.filter(s => !ids.has(s.id))];
       });
     } catch (e) { if (!e.message?.includes('cancel')) setError('Pick failed: ' + e.message); }
   }, []);
+
+  const refreshMetadata = useCallback(async () => {
+    if (!songs.length) return;
+    setError('');
+    setRefreshingMetadata(true);
+    try {
+      const updated = await Promise.all(songs.map(async (song) => {
+        const shouldLookup = !song.artist || song.artist === 'Unknown' || !song.title || song.title === 'Unknown' || song.genre === 'Unknown' || song.confidence < 65;
+        const metadata = shouldLookup ? await lookupTrackMetadata(song.title, song.artist, song.genre) : null;
+        if (!metadata) return song;
+        const resolvedTitle = metadata.title || song.title;
+        const resolvedArtist = metadata.artist || song.artist;
+        const enrichedClassification = classify(resolvedTitle, resolvedArtist, metadata.album || '');
+        const finalGenre = metadata.genre || enrichedClassification.genre || song.genre;
+        const finalConfidence = metadata.genre ? Math.min(97, Math.max(enrichedClassification.confidence, 72)) : Math.max(song.confidence, enrichedClassification.confidence);
+        return {
+          ...song,
+          title: resolvedTitle,
+          artist: resolvedArtist,
+          genre: finalGenre,
+          confidence: finalConfidence,
+          mood: enrichedClassification.mood,
+        };
+      }));
+      setSongs(updated);
+    } catch (e) {
+      setError('Metadata refresh failed: ' + e.message);
+    } finally {
+      setRefreshingMetadata(false);
+    }
+  }, [songs]);
 
   // ── Play song (expo-audio) ──
   const playSong = useCallback((song, queue, idx) => {
@@ -319,7 +483,7 @@ export default function App() {
 
       {/* Screens */}
       <View style={{ flex: 1 }}>
-        {tab === 'library'  && <LibraryScreen songs={songs} scanning={scanning} scanProg={scanProg} error={error} stats={stats} nowPlaying={nowPlaying} onScan={scanLibrary} onPick={pickFiles} onPlay={playSong} />}
+        {tab === 'library'  && <LibraryScreen songs={songs} scanning={scanning} scanProg={scanProg} error={error} stats={stats} nowPlaying={nowPlaying} refreshingMetadata={refreshingMetadata} onScan={scanLibrary} onPick={pickFiles} onRefreshMetadata={refreshMetadata} onPlay={playSong} />}
         {tab === 'genres'   && <GenresScreen  genreGroups={genreGroups} nowPlaying={nowPlaying} onPlay={playSong} />}
         {tab === 'insights' && <InsightsScreen songs={songs} genreGroups={genreGroups} stats={stats} />}
       </View>
@@ -369,7 +533,7 @@ export default function App() {
 }
 
 // ─── Library Screen ───────────────────────────────────────────
-function LibraryScreen({ songs, scanning, scanProg, error, stats, nowPlaying, onScan, onPick, onPlay }) {
+function LibraryScreen({ songs, scanning, scanProg, error, stats, nowPlaying, refreshingMetadata, onScan, onPick, onRefreshMetadata, onPlay }) {
   if (!songs.length && !scanning) {
     return (
       <View style={s.empty}>
@@ -416,9 +580,14 @@ function LibraryScreen({ songs, scanning, scanProg, error, stats, nowPlaying, on
             ))}
           </View>
           {!scanning && (
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              <TouchableOpacity style={[s.actionBtn, { flex: 1 }]} onPress={onScan}><Text style={s.actionTxt}>🔄 Re-scan</Text></TouchableOpacity>
-              <TouchableOpacity style={[s.actionBtn, { flex: 1 }]} onPress={onPick}><Text style={s.actionTxt}>➕ Add Files</Text></TouchableOpacity>
+            <View style={{ gap: 8 }}>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TouchableOpacity style={[s.actionBtn, { flex: 1 }]} onPress={onScan}><Text style={s.actionTxt}>🔄 Re-scan</Text></TouchableOpacity>
+                <TouchableOpacity style={[s.actionBtn, { flex: 1 }]} onPress={onPick}><Text style={s.actionTxt}>➕ Add Files</Text></TouchableOpacity>
+              </View>
+              <TouchableOpacity style={s.actionBtn} onPress={onRefreshMetadata} disabled={refreshingMetadata}>
+                {refreshingMetadata ? <ActivityIndicator color={C.gold} /> : <Text style={s.actionTxt}>🧠 Refresh Metadata</Text>}
+              </TouchableOpacity>
             </View>
           )}
           <Text style={s.secLbl}>CLASSIFIED SONGS</Text>
@@ -586,18 +755,18 @@ function PlayerScreen({ song, isPlaying, progPct, posStr, durStr, onClose, onTog
   if (!song) return null;
   const [bg, tc, em] = getStyle(song.genre);
   return (
-    <View style={{ flex: 1, backgroundColor: C.bg, paddingTop: 60, paddingHorizontal: 24, paddingBottom: 40 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32 }}>
+    <View style={{ flex: 1, backgroundColor: C.bg, paddingTop: 56, paddingHorizontal: playerPad, paddingBottom: 32 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <TouchableOpacity onPress={onClose} style={s.closeBtn}><Text style={{ fontSize: 22, color: C.text2 }}>⌄</Text></TouchableOpacity>
         <Text style={s.secLbl}>NOW PLAYING</Text>
         <View style={{ width: 40 }} />
       </View>
-      <View style={[s.bigArt, { backgroundColor: bg }]}>
-        <Text style={{ fontSize: 90 }}>{em}</Text>
+      <View style={[s.bigArt, { backgroundColor: bg, width: playerArtSize, height: playerArtSize }]}>
+        <Text style={{ fontSize: isCompactScreen ? 72 : 90 }}>{em}</Text>
       </View>
-      <View style={{ marginBottom: 28, alignItems: 'center' }}>
-        <Text style={s.bigTitle} numberOfLines={2}>{song.title}</Text>
-        <Text style={s.bigArtist}>{song.artist}</Text>
+      <View style={{ marginBottom: 24, alignItems: 'center', width: '100%' }}>
+        <Text style={[s.bigTitle, { fontSize: isCompactScreen ? 19 : 22 }]} numberOfLines={2}>{song.title}</Text>
+        <Text style={[s.bigArtist, { fontSize: isCompactScreen ? 12 : 14 }]}>{song.artist}</Text>
         <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap', justifyContent: 'center', marginTop: 10 }}>
           <View style={[s.genrePill, { backgroundColor: bg, borderColor: tc + '60' }]}><Text style={[s.genrePillTxt, { color: tc }]}>{song.genre}</Text></View>
           <Text style={s.confTxt}>{song.mood} · {song.confidence}%</Text>
@@ -628,8 +797,8 @@ function PlayerScreen({ song, isPlaying, progPct, posStr, durStr, onClose, onTog
 // ─── Styles ───────────────────────────────────────────────────
 const s = StyleSheet.create({
   root:         { flex: 1, backgroundColor: C.bg },
-  header:       { flexDirection:'row', alignItems:'center', justifyContent:'space-between', paddingHorizontal:16, paddingVertical:13, backgroundColor:C.surface, borderBottomWidth:1, borderBottomColor:C.border },
-  logoRow:      { flexDirection:'row', alignItems:'center', gap:9 },
+  header:       { flexDirection:'row', alignItems:'center', justifyContent:'space-between', paddingHorizontal:12, paddingVertical:12, backgroundColor:C.surface, borderBottomWidth:1, borderBottomColor:C.border, flexWrap:'wrap', gap:8 },
+  logoRow:      { flexDirection:'row', alignItems:'center', gap:8, flexShrink:1 },
   logoMark:     { width:32, height:32, borderRadius:9, backgroundColor:C.gold, alignItems:'center', justifyContent:'center' },
   logoName:     { fontSize:20, fontWeight:'800', color:C.gold, letterSpacing:-0.5 },
   badge:        { backgroundColor:'rgba(245,200,66,.12)', borderWidth:1, borderColor:'rgba(245,200,66,.3)', borderRadius:999, paddingHorizontal:7, paddingVertical:2 },
@@ -637,14 +806,14 @@ const s = StyleSheet.create({
   livePill:     { flexDirection:'row', alignItems:'center', gap:6 },
   liveDot:      { width:6, height:6, borderRadius:3, backgroundColor:C.teal },
   liveText:     { fontFamily:'Courier', fontSize:9, color:C.teal, letterSpacing:0.8 },
-  tabBar:       { flexDirection:'row', backgroundColor:C.surface, borderBottomWidth:1, borderBottomColor:C.border, paddingHorizontal:6 },
-  tab:          { flex:1, flexDirection:'row', alignItems:'center', justifyContent:'center', gap:5, paddingVertical:11, borderBottomWidth:2, borderBottomColor:'transparent' },
+  tabBar:       { flexDirection:'row', backgroundColor:C.surface, borderBottomWidth:1, borderBottomColor:C.border, paddingHorizontal:4, paddingBottom:2 },
+  tab:          { flex:1, flexDirection:'row', alignItems:'center', justifyContent:'center', gap:4, paddingVertical:10, paddingHorizontal:2, borderBottomWidth:2, borderBottomColor:'transparent', minWidth:0 },
   tabOn:        { borderBottomColor:C.gold },
-  tabLabel:     { fontSize:11, fontWeight:'600', color:C.text3 },
+  tabLabel:     { fontSize:10, fontWeight:'600', color:C.text3 },
   tabLabelOn:   { color:C.gold },
   pill:         { backgroundColor:'rgba(245,200,66,.15)', borderRadius:999, paddingHorizontal:5, paddingVertical:1 },
   pillTxt:      { fontFamily:'Courier', fontSize:9, color:C.gold, fontWeight:'700' },
-  empty:        { flex:1, alignItems:'center', justifyContent:'center', padding:28 },
+  empty:        { flex:1, alignItems:'center', justifyContent:'center', paddingHorizontal:24, paddingVertical:28, maxWidth:560, alignSelf:'center', width:'100%' },
   emptyTitle:   { fontSize:20, fontWeight:'800', color:C.text, marginBottom:10, textAlign:'center' },
   emptySub:     { fontSize:13, color:C.text2, textAlign:'center', lineHeight:20, marginBottom:28 },
   errTxt:       { color:C.coral, fontFamily:'Courier', fontSize:11, marginBottom:16, textAlign:'center' },
@@ -659,20 +828,20 @@ const s = StyleSheet.create({
   scanMeta:     { color:C.text3, fontSize:10, fontFamily:'Courier' },
   progTrack:    { height:3, backgroundColor:C.raised, borderRadius:2 },
   progFill:     { height:3, backgroundColor:C.gold, borderRadius:2 },
-  statsRow:     { flexDirection:'row', gap:9 },
-  statCard:     { flex:1, backgroundColor:C.card, borderWidth:1, borderColor:C.border, borderRadius:12, padding:11, alignItems:'center' },
+  statsRow:     { flexDirection:'row', flexWrap:'wrap', gap:8 },
+  statCard:     { flex:1, minWidth:'31%', backgroundColor:C.card, borderWidth:1, borderColor:C.border, borderRadius:12, padding:11, alignItems:'center' },
   statVal:      { fontSize:22, fontWeight:'800', color:C.gold, marginBottom:3 },
   statLbl:      { fontSize:9, color:C.text3, fontFamily:'Courier', letterSpacing:1 },
   actionBtn:    { backgroundColor:C.card, borderWidth:1, borderColor:C.border, borderRadius:8, paddingVertical:9, alignItems:'center' },
   actionTxt:    { color:C.text2, fontSize:11, fontWeight:'600' },
   secLbl:       { fontFamily:'Courier', fontSize:9, color:C.text3, letterSpacing:1.5 },
-  songCard:     { flexDirection:'row', alignItems:'center', gap:11, backgroundColor:C.card, borderWidth:1, borderColor:C.border, borderRadius:12, padding:10 },
+  songCard:     { flexDirection:'row', alignItems:'center', gap:10, backgroundColor:C.card, borderWidth:1, borderColor:C.border, borderRadius:12, padding:10, minHeight:58, flexShrink:1 },
   songCardOn:   { borderColor:'rgba(245,200,66,.5)', backgroundColor:'rgba(245,200,66,.04)' },
   thumb:        { width:40, height:40, borderRadius:9, alignItems:'center', justifyContent:'center', overflow:'hidden' },
   thumbOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor:'rgba(0,0,0,.45)', alignItems:'center', justifyContent:'center', borderRadius:9 },
-  songTitle:    { color:C.text, fontSize:12, fontWeight:'700', marginBottom:2 },
-  songArtist:   { color:C.text3, fontSize:10, fontFamily:'Courier' },
-  genrePill:    { paddingHorizontal:8, paddingVertical:2, borderRadius:999, borderWidth:1 },
+  songTitle:    { color:C.text, fontSize:12, fontWeight:'700', marginBottom:2, flexShrink:1 },
+  songArtist:   { color:C.text3, fontSize:10, fontFamily:'Courier', flexShrink:1 },
+  genrePill:    { paddingHorizontal:8, paddingVertical:2, borderRadius:999, borderWidth:1, maxWidth:120, flexShrink:1 },
   genrePillTxt: { fontSize:9, fontFamily:'Courier', fontWeight:'600' },
   confTxt:      { fontSize:9, color:C.text3, fontFamily:'Courier' },
   genreBlock:   { backgroundColor:C.card, borderWidth:1, borderColor:C.border, borderRadius:12, overflow:'hidden' },
@@ -692,8 +861,8 @@ const s = StyleSheet.create({
   barRow2:      { flexDirection:'row', alignItems:'center', gap:9, padding:10, paddingHorizontal:13, borderBottomWidth:StyleSheet.hairlineWidth, borderBottomColor:C.border },
   barTrack2:    { flex:1, height:4, backgroundColor:'rgba(255,255,255,.06)', borderRadius:2, overflow:'hidden' },
   barFill2:     { height:4, borderRadius:2 },
-  barName:      { fontFamily:'Courier', fontSize:10, color:C.text2, width:90 },
-  barCount:     { fontFamily:'Courier', fontSize:10, color:C.text3, width:22, textAlign:'right' },
+  barName:      { fontFamily:'Courier', fontSize:10, color:C.text2, flex:1, minWidth:70, maxWidth:90 },
+  barCount:     { fontFamily:'Courier', fontSize:10, color:C.text3, width:24, textAlign:'right', marginLeft:4 },
   miniPlayer:   { backgroundColor:C.card, borderTopWidth:1, borderTopColor:C.border },
   miniProgress: { height:2, backgroundColor:C.raised },
   miniProgFill: { height:2, backgroundColor:C.gold },
@@ -704,9 +873,9 @@ const s = StyleSheet.create({
   miniControls: { flexDirection:'row', alignItems:'center', gap:6 },
   miniPlayBtn:  { width:36, height:36, borderRadius:18, backgroundColor:C.gold, alignItems:'center', justifyContent:'center' },
   closeBtn:     { width:40, height:40, backgroundColor:C.card, borderWidth:1, borderColor:C.border, borderRadius:8, alignItems:'center', justifyContent:'center' },
-  bigArt:       { width:W-48, height:W-48, borderRadius:24, alignSelf:'center', alignItems:'center', justifyContent:'center', marginBottom:28 },
-  bigTitle:     { fontSize:22, fontWeight:'800', color:C.text, textAlign:'center', marginBottom:6, letterSpacing:-0.3 },
-  bigArtist:    { fontSize:14, color:C.text2, fontFamily:'Courier' },
+  bigArt:       { borderRadius:24, alignSelf:'center', alignItems:'center', justifyContent:'center', marginBottom:24, maxWidth:320, maxHeight:320 },
+  bigTitle:     { fontSize:22, fontWeight:'800', color:C.text, textAlign:'center', marginBottom:6, letterSpacing:-0.3, maxWidth:'100%' },
+  bigArtist:    { fontSize:14, color:C.text2, fontFamily:'Courier', textAlign:'center', maxWidth:'100%' },
   seekTrack:    { height:4, backgroundColor:C.raised, borderRadius:2, marginBottom:8 },
   seekFill:     { height:4, backgroundColor:C.gold, borderRadius:2, flexDirection:'row', justifyContent:'flex-end', alignItems:'center' },
   seekThumb:    { width:14, height:14, borderRadius:7, backgroundColor:C.gold, marginRight:-7 },
