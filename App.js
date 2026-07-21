@@ -7,11 +7,14 @@ import {
 import { useAudioPlayer, useAudioPlayerStatus, setAudioModeAsync } from 'expo-audio';
 import * as MediaLibrary from 'expo-media-library';
 import * as DocumentPicker from 'expo-document-picker';
+import { classifyTrack, parseName, normalizeGenreName } from './genreClassifier';
 
 const { width: W, height: H } = Dimensions.get('window');
 const isCompactScreen = W < 380;
-const playerArtSize = Math.min(W - 48, 320);
-const playerPad = Math.max(16, W * 0.06);
+const isExtraSmallScreen = W < 320;
+const playerArtSize = Math.min(W - 48, isExtraSmallScreen ? 240 : 320);
+const playerPad = Math.max(12, W * 0.06);
+const contentPad = Math.max(12, W * 0.04);
 
 // ─── Theme ───────────────────────────────────────────────────
 const C = {
@@ -61,173 +64,35 @@ const GENRES = {
 
 function getStyle(genre) { return GENRES[genre] || GENRES['Unknown']; }
 
-// ─── Classifier ───────────────────────────────────────────────
-const KW = [
-  { g:'Afrobeats',   k:['afrobeat','afropop','wizkid','burna','rema','davido','tiwa','kizz','omah','ckay','fireboy','joeboy','tems','asake','olamide','naira marley','amapiano'] },
-  { g:'Dancehall',   k:['dancehall','vybz kartel','popcaan','alkaline','shaggy','beenie man'] },
-  { g:'Reggae',      k:['reggae','bob marley','damian marley','chronixx','protoje','sizzla','buju','ska'] },
-  { g:'Trap',        k:['trap','young thug','21 savage','gunna','lil baby','future','2 chainz','drill','pop smoke','central cee','headie one','kodak'] },
-  { g:'Hip-Hop',     k:['hip-hop','hip hop','rap','drake','kendrick','kanye','jay-z','eminem','nicki minaj','cardi b','j. cole','big sean','meek mill','rick ross','lil wayne','snoop','nas','biggie','tupac','a$ap','asap','travis scott','schoolboy','rapper'] },
-  { g:'K-Pop',       k:['k-pop','kpop','bts','blackpink','twice','exo','got7','stray kids','red velvet','aespa','itzy','nct','enhypen','seventeen','shinee','bigbang','korean pop'] },
-  { g:'Latin',       k:['latin','reggaeton','bad bunny','j balvin','ozuna','maluma','daddy yankee','nicky jam','farruko','rauw alejandro','karol g','rosalia','salsa','bachata','cumbia','brazil','spanish'] },
-  { g:'R&B',         k:['r&b','rnb','r n b','sza','frank ocean','beyonce','beyoncé','alicia keys','usher','miguel','daniel caesar','6lack','ella mai','khalid','giveon','brent faiyaz','soulful'] },
-  { g:'Soul',        k:['soul','neo soul','erykah badu','lauryn hill','jill scott','maxwell','marvin gaye','stevie wonder','otis redding','sam cooke','d\'angelo'] },
-  { g:'Gospel',      k:['gospel','kirk franklin','lecrae','tye tribbett','fred hammond','travis greene','cece winans','church'] },
-  { g:'House',       k:['house','calvin harris','david guetta','afrojack','martin garrix','tiesto','tiësto','disclosure','fisher','chris lake','john summit'] },
-  { g:'Techno',      k:['techno','skrillex','deadmau5','charlotte de witte','nina kraviz'] },
-  { g:'Electronic',  k:['electronic','edm','avicii','alan walker','marshmello','diplo','flume','porter robinson','madeon','illenium','trance'] },
-  { g:'Drum & Bass', k:['drum and bass','drum & bass','dnb','chase & status','pendulum','noisia','sub focus'] },
-  { g:'Metal',       k:['metal','metallica','iron maiden','black sabbath','slayer','megadeth','pantera','tool','avenged sevenfold','hardcore'] },
-  { g:'Rock',        k:['rock','nirvana','radiohead','arctic monkeys','pearl jam','foo fighters','green day','red hot chili peppers','the killers','muse','punk'] },
-  { g:'Indie Pop',   k:['indie','tame impala','vampire weekend','mgmt','beach house','the 1975','the national','bon iver','sufjan','fleet foxes','alt-j'] },
-  { g:'Classical',   k:['classical','beethoven','mozart','chopin','bach','schubert','brahms','tchaikovsky','vivaldi','handel','debussy','orchestral','piano'] },
-  { g:'Country',     k:['country','luke combs','morgan wallen','blake shelton','kenny rogers','johnny cash','dolly parton','garth brooks','cowboy'] },
-  { g:'Blues',       k:['blues','b.b. king','muddy waters','howlin wolf','john lee hooker','buddy guy'] },
-  { g:'Folk',        k:['folk','acoustic','iron & wine','noah kahan','phoebe bridgers','big thief','gregory alan isakov','campfire'] },
-  { g:'Dark Pop',    k:['billie eilish','lorde','halsey','melanie martinez','marina','banks'] },
-  { g:'Dance-Pop',   k:['lady gaga','katy perry','carly rae','meghan trainor','jason derulo','pitbull','flo rida','dance','club'] },
-  { g:'Pop Rock',    k:['imagine dragons','onerepublic','maroon 5','train','walk the moon'] },
-  { g:'Pop',         k:['pop','taylor swift','ariana grande','dua lipa','ed sheeran','harry styles','the weeknd','charlie puth','shawn mendes','selena gomez','doja cat','olivia rodrigo','post malone','sam smith','adele'] },
-];
-
-function normalizeText(value) {
-  return String(value || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9\s&+]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function inferFallbackGenre(text) {
-  const hay = normalizeText(text);
-  const fallbackRules = [
-    { g:'Afrobeats', k:['afro','afrobeats','amapiano','nigerian','naija'] },
-    { g:'Dancehall', k:['dancehall','dancehall','reggae'] },
-    { g:'Hip-Hop', k:['rap','rapper','hip hop','hip-hop','beat','verse'] },
-    { g:'R&B', k:['rnb','r and b','r&b','smooth','slow jam'] },
-    { g:'Soul', k:['soul','neo soul'] },
-    { g:'Gospel', k:['gospel','church','worship'] },
-    { g:'House', k:['house','club','deep house'] },
-    { g:'Techno', k:['techno','minimal'] },
-    { g:'Electronic', k:['edm','electronic','trance'] },
-    { g:'Drum & Bass', k:['drum and bass','drum & bass','dnb'] },
-    { g:'Metal', k:['metal','hardcore','heavy'] },
-    { g:'Rock', k:['rock','punk','alt'] },
-    { g:'Indie Pop', k:['indie','alt pop','indie pop'] },
-    { g:'Classical', k:['classical','orchestral','piano'] },
-    { g:'Country', k:['country','cowboy'] },
-    { g:'Blues', k:['blues','blue'] },
-    { g:'Folk', k:['folk','acoustic'] },
-    { g:'K-Pop', k:['k-pop','kpop','korean'] },
-    { g:'Latin', k:['latin','reggaeton','salsa','brazil','spanish','mexican'] },
-    { g:'Dance-Pop', k:['dance','pop dance','club'] },
-  ];
-  for (const { g, k } of fallbackRules) {
-    if (k.some(kw => hay.includes(kw))) return g;
-  }
-  return 'Pop';
-}
-
 function classify(title, artist, album) {
-  const hay = normalizeText(`${title} ${artist} ${album}`);
-  const artistNorm = normalizeText(artist);
-  let bestG = null, bestScore = 0;
-  for (const { g, k } of KW) {
-    for (const kw of k) {
-      const kwNorm = normalizeText(kw);
-      if (hay.includes(kwNorm)) {
-        const score = kwNorm.length + (kwNorm === artistNorm ? 10 : 0);
-        if (score > bestScore) { bestScore = score; bestG = g; }
-      }
-    }
-  }
-  const fallback = inferFallbackGenre(hay);
-  const genre = bestG || fallback;
-  const confidence = bestG
-    ? Math.min(97, 62 + Math.floor(bestScore * 1.4))
-    : fallback === 'Pop' ? 56 : Math.min(86, 64 + Math.floor(fallback.length / 3));
-  const moodMap = {
-    'Metal':'Aggressive','Trap':'Hype','Drum & Bass':'Energetic',
-    'Electronic':'Energetic','House':'Energetic','Dance-Pop':'Uplifting',
-    'K-Pop':'Uplifting','Reggae':'Uplifting','Afrobeats':'Uplifting',
-    'Classical':'Melancholic','Jazz':'Chill','Soul':'Melancholic',
-    'Blues':'Melancholic','Folk':'Melancholic','R&B':'Chill',
-    'Hip-Hop':'Chill','Gospel':'Spiritual','Dark Pop':'Melancholic',
-    'Pop':'Uplifting','Rock':'Energetic','Indie Pop':'Balanced',
-  };
-  return { genre, confidence, mood: moodMap[genre] || 'Balanced' };
-}
-
-function parseName(filename) {
-  const clean = (filename || '').replace(/\.[^.]+$/, '').replace(/_/g, ' ').trim();
-  const normalized = clean.replace(/\s+/g, ' ');
-  const patterns = [
-    /^(.+?)\s*[-–—:|]\s*(.+)$/i,
-    /^(.+?)\s+by\s+(.+)$/i,
-    /^(.+?)\s+\((.+)\)$/i,
-  ];
-  for (const pattern of patterns) {
-    const m = normalized.match(pattern);
-    if (m) return { artist: m[1].trim(), title: m[2].trim() };
-  }
-  return { artist: 'Unknown', title: normalized || 'Unknown' };
-}
-
-function mapLookupGenre(genreName) {
-  const normalized = normalizeText(genreName || '');
-  const genreMap = {
-    'hip hop': 'Hip-Hop',
-    'rap': 'Hip-Hop',
-    'rnb': 'R&B',
-    'rhythm and blues': 'R&B',
-    'soul': 'Soul',
-    'gospel': 'Gospel',
-    'house': 'House',
-    'techno': 'Techno',
-    'electronic': 'Electronic',
-    'dance': 'Dance-Pop',
-    'dance pop': 'Dance-Pop',
-    'pop': 'Pop',
-    'rock': 'Rock',
-    'indie': 'Indie Pop',
-    'indie pop': 'Indie Pop',
-    'folk': 'Folk',
-    'country': 'Country',
-    'classical': 'Classical',
-    'jazz': 'Jazz',
-    'metal': 'Metal',
-    'blues': 'Blues',
-    'reggae': 'Reggae',
-    'latin': 'Latin',
-    'k pop': 'K-Pop',
-    'k-pop': 'K-Pop',
-    'afrobeats': 'Afrobeats',
-    'afro': 'Afrobeats',
-    'dancehall': 'Dancehall',
-    'trap': 'Trap',
-    'drum and bass': 'Drum & Bass',
-    'drum & bass': 'Drum & Bass',
-  };
-  return genreMap[normalized] || null;
+  return classifyTrack(title, artist, album);
 }
 
 async function lookupTrackMetadata(title, artist, fallbackGenre) {
   try {
     const query = [title, artist].filter(Boolean).join(' ').trim();
-    if (!query || query === 'Unknown') return null;
-    const url = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=1`;
-    const response = await fetch(url);
-    if (!response.ok) return null;
-    const data = await response.json();
-    const hit = data.results?.[0];
-    if (!hit) return null;
-    const resolvedTitle = hit.trackName || title;
-    const resolvedArtist = hit.artistName || artist;
-    const genre = mapLookupGenre(hit.primaryGenreName) || fallbackGenre || null;
+    if (!query || query === 'Unknown' || query === 'Unknown Artist' || query === 'Unknown Title') return null;
+
+    const musicBrainzUrl = `https://musicbrainz.org/ws/2/recording/?fmt=json&query=${encodeURIComponent(`${title} AND artist:${artist}`)}`;
+    const mbResponse = await fetch(musicBrainzUrl, { headers: { 'User-Agent': 'MuziQ/1.0 (+https://example.com)' } });
+    const mbData = mbResponse.ok ? await mbResponse.json() : null;
+    const mbRecordings = mbData?.recordings?.slice(0, 3) || [];
+
+    const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=3`;
+    const response = await fetch(itunesUrl);
+    const data = response.ok ? await response.json() : null;
+    const hit = data?.results?.[0] || null;
+
+    const resolvedTitle = hit?.trackName || title;
+    const resolvedArtist = hit?.artistName || artist;
+    const resolvedAlbum = hit?.collectionName || (mbRecordings[0]?.releases?.[0]?.title || '');
+    const lookupGenre = normalizeGenreName(hit?.primaryGenreName || mbRecordings[0]?.tags?.[0]?.name || '');
+    const genre = lookupGenre || fallbackGenre || null;
+
     return {
       title: resolvedTitle,
       artist: resolvedArtist,
-      album: hit.collectionName || '',
+      album: resolvedAlbum,
       genre,
     };
   } catch (error) {
@@ -319,7 +184,7 @@ export default function App() {
         let uri = a.uri;
         try { const info = await MediaLibrary.getAssetInfoAsync(a); uri = info.localUri || a.uri; } catch {}
         const initialClassification = classify(title, artist, '');
-        const shouldLookup = !artist || artist === 'Unknown' || !title || title === 'Unknown' || initialClassification.genre === 'Unknown' || initialClassification.confidence < 60;
+        const shouldLookup = !artist || artist === 'Unknown Artist' || !title || title === 'Unknown Title' || initialClassification.genre === 'Unknown' || initialClassification.confidence < 60;
         const metadata = shouldLookup ? await lookupTrackMetadata(title, artist, initialClassification.genre) : null;
         const resolvedTitle = metadata?.title || title;
         const resolvedArtist = metadata?.artist || artist;
@@ -344,7 +209,7 @@ export default function App() {
       const picked = await Promise.all(res.assets.map(async (f, i) => {
         const { artist, title } = parseName(f.name);
         const initialClassification = classify(title, artist, '');
-        const shouldLookup = !artist || artist === 'Unknown' || !title || title === 'Unknown' || initialClassification.genre === 'Unknown' || initialClassification.confidence < 60;
+        const shouldLookup = !artist || artist === 'Unknown Artist' || !title || title === 'Unknown Title' || initialClassification.genre === 'Unknown' || initialClassification.confidence < 60;
         const metadata = shouldLookup ? await lookupTrackMetadata(title, artist, initialClassification.genre) : null;
         const resolvedTitle = metadata?.title || title;
         const resolvedArtist = metadata?.artist || artist;
@@ -366,7 +231,7 @@ export default function App() {
     setRefreshingMetadata(true);
     try {
       const updated = await Promise.all(songs.map(async (song) => {
-        const shouldLookup = !song.artist || song.artist === 'Unknown' || !song.title || song.title === 'Unknown' || song.genre === 'Unknown' || song.confidence < 65;
+        const shouldLookup = !song.artist || song.artist === 'Unknown Artist' || !song.title || song.title === 'Unknown Title' || song.genre === 'Unknown' || song.confidence < 65;
         const metadata = shouldLookup ? await lookupTrackMetadata(song.title, song.artist, song.genre) : null;
         if (!metadata) return song;
         const resolvedTitle = metadata.title || song.title;
@@ -551,7 +416,7 @@ function LibraryScreen({ songs, scanning, scanProg, error, stats, nowPlaying, re
     );
   }
   return (
-    <View style={{ flex: 1, padding: 14, gap: 10 }}>
+    <View style={{ flex: 1, padding: contentPad, gap: 10 }}>
       {scanning && (
         <>
           <View style={s.scanCard}>
@@ -571,9 +436,9 @@ function LibraryScreen({ songs, scanning, scanProg, error, stats, nowPlaying, re
       )}
       {songs.length > 0 && (
         <>
-          <View style={s.statsRow}>
+          <View style={[s.statsRow, { flexWrap: isExtraSmallScreen ? 'wrap' : 'wrap' }]}>
             {[['SONGS', stats.total], ['GENRES', stats.genres], ['ACCURACY', stats.avg + '%']].map(([l, v]) => (
-              <View key={l} style={s.statCard}>
+              <View key={l} style={[s.statCard, { flex: isExtraSmallScreen ? 0 : 1, minWidth: isExtraSmallScreen ? '48%' : '31%' }]}>
                 <Text style={s.statVal}>{v}</Text>
                 <Text style={s.statLbl}>{l}</Text>
               </View>
@@ -610,9 +475,9 @@ function LibraryScreen({ songs, scanning, scanProg, error, stats, nowPlaying, re
                     <Text style={[s.songTitle, active && { color: C.gold }]} numberOfLines={1}>{item.title}</Text>
                     <Text style={s.songArtist} numberOfLines={1}>{item.artist}</Text>
                   </View>
-                  <View style={{ alignItems: 'flex-end', gap: 3 }}>
-                    <View style={[s.genrePill, { backgroundColor: bg, borderColor: tc + '70' }]}>
-                      <Text style={[s.genrePillTxt, { color: tc }]}>{item.genre}</Text>
+                  <View style={{ alignItems: 'flex-end', gap: 3, marginLeft: 8 }}>
+                    <View style={[s.genrePill, { backgroundColor: bg, borderColor: tc + '70', maxWidth: isExtraSmallScreen ? 70 : 120 }]}>
+                      <Text style={[s.genrePillTxt, { color: tc }]} numberOfLines={1}>{item.genre}</Text>
                     </View>
                     <Text style={s.confTxt}>{item.confidence}%</Text>
                   </View>
@@ -641,7 +506,7 @@ function GenresScreen({ genreGroups, nowPlaying, onPlay }) {
     <FlatList
       data={genreGroups}
       keyExtractor={g => g.genre}
-      contentContainerStyle={{ padding: 14, gap: 8, paddingBottom: 20 }}
+      contentContainerStyle={{ padding: contentPad, gap: 8, paddingBottom: 20 }}
       showsVerticalScrollIndicator={false}
       ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
       ListHeaderComponent={<Text style={[s.secLbl, { marginBottom: 8 }]}>GENRE BREAKDOWN — {genreGroups.length} GENRES</Text>}
@@ -651,14 +516,14 @@ function GenresScreen({ genreGroups, nowPlaying, onPlay }) {
         return (
           <View style={s.genreBlock}>
             <TouchableOpacity style={s.genreHdr} onPress={() => setExpanded(open ? null : g.genre)} activeOpacity={0.8}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
                 <Text style={s.rank}>#{index + 1}</Text>
-                <View>
-                  <Text style={s.genreName}>{g.genre}</Text>
-                  <Text style={s.genreMeta}>{g.count} tracks · {g.avg}% avg</Text>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={s.genreName} numberOfLines={1}>{g.genre}</Text>
+                  <Text style={s.genreMeta} numberOfLines={1}>{g.count} tracks · {g.avg}% avg</Text>
                 </View>
               </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 8 }}>
                 <View style={[s.genreCount, { backgroundColor: bg }]}><Text style={{ color: tc, fontFamily: 'Courier', fontSize: 11, fontWeight: '700' }}>{g.count}</Text></View>
                 <Text style={{ color: C.text3, fontSize: 14 }}>{open ? '⌃' : '⌄'}</Text>
               </View>
@@ -707,10 +572,10 @@ function InsightsScreen({ songs, genreGroups, stats }) {
   const MOOD_C = { Energetic:'#f5c842',Hype:'#ff5f6d',Uplifting:'#00e5c0',Chill:'#38bdf8',Balanced:'#a78bfa',Melancholic:'#9080c0',Aggressive:'#ff5f6d',Spiritual:'#c8b0ff',Neutral:'#888899',Unknown:'#888899' };
   const MOOD_E = { Energetic:'⚡',Hype:'🔥',Uplifting:'☀️',Chill:'🌊',Balanced:'🎵',Melancholic:'🌧️',Aggressive:'💥',Spiritual:'✨',Neutral:'😐',Unknown:'🎵' };
   return (
-    <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 24, gap: 14 }} showsVerticalScrollIndicator={false}>
+    <ScrollView contentContainerStyle={{ padding: contentPad, paddingBottom: 24, gap: 14 }} showsVerticalScrollIndicator={false}>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 9 }}>
         {[['SONGS', stats.total], ['GENRES', stats.genres], ['ACCURACY', stats.avg + '%'], ['ARTISTS', Object.keys(artistCounts).length]].map(([l, v]) => (
-          <View key={l} style={[s.statCard, { minWidth: '44%', flex: 1 }]}>
+          <View key={l} style={[s.statCard, { minWidth: isExtraSmallScreen ? '48%' : '44%', flex: 1 }]}>
             <Text style={s.statVal}>{v}</Text><Text style={s.statLbl}>{l}</Text>
           </View>
         ))}
@@ -755,20 +620,20 @@ function PlayerScreen({ song, isPlaying, progPct, posStr, durStr, onClose, onTog
   if (!song) return null;
   const [bg, tc, em] = getStyle(song.genre);
   return (
-    <View style={{ flex: 1, backgroundColor: C.bg, paddingTop: 56, paddingHorizontal: playerPad, paddingBottom: 32 }}>
+    <View style={{ flex: 1, backgroundColor: C.bg, paddingTop: isExtraSmallScreen ? 40 : 56, paddingHorizontal: playerPad, paddingBottom: 32 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <TouchableOpacity onPress={onClose} style={s.closeBtn}><Text style={{ fontSize: 22, color: C.text2 }}>⌄</Text></TouchableOpacity>
         <Text style={s.secLbl}>NOW PLAYING</Text>
         <View style={{ width: 40 }} />
       </View>
       <View style={[s.bigArt, { backgroundColor: bg, width: playerArtSize, height: playerArtSize }]}>
-        <Text style={{ fontSize: isCompactScreen ? 72 : 90 }}>{em}</Text>
+        <Text style={{ fontSize: isExtraSmallScreen ? 56 : isCompactScreen ? 72 : 90 }}>{em}</Text>
       </View>
       <View style={{ marginBottom: 24, alignItems: 'center', width: '100%' }}>
-        <Text style={[s.bigTitle, { fontSize: isCompactScreen ? 19 : 22 }]} numberOfLines={2}>{song.title}</Text>
-        <Text style={[s.bigArtist, { fontSize: isCompactScreen ? 12 : 14 }]}>{song.artist}</Text>
+        <Text style={[s.bigTitle, { fontSize: isExtraSmallScreen ? 16 : isCompactScreen ? 19 : 22 }]} numberOfLines={2}>{song.title}</Text>
+        <Text style={[s.bigArtist, { fontSize: isExtraSmallScreen ? 11 : isCompactScreen ? 12 : 14 }]}>{song.artist}</Text>
         <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap', justifyContent: 'center', marginTop: 10 }}>
-          <View style={[s.genrePill, { backgroundColor: bg, borderColor: tc + '60' }]}><Text style={[s.genrePillTxt, { color: tc }]}>{song.genre}</Text></View>
+          <View style={[s.genrePill, { backgroundColor: bg, borderColor: tc + '60', maxWidth: isExtraSmallScreen ? 80 : 120 }]}><Text style={[s.genrePillTxt, { color: tc }]} numberOfLines={1}>{song.genre}</Text></View>
           <Text style={s.confTxt}>{song.mood} · {song.confidence}%</Text>
         </View>
       </View>
